@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import '../../../config/app_spacing.dart';
 import '../../../shared/widgets/guest_guard_screen.dart';
+import '../../../shared/widgets/nano_button.dart';
 import '../../authentication/presentation/providers/auth_providers.dart';
 import 'image_preprocess_screen.dart';
 import 'puzzle_editor_screen.dart';
 import 'providers/create_puzzle_controller.dart';
 import '../data/services/draft_service.dart';
 import '../../../shared/utils/image_processor.dart';
+import '../../../shared/widgets/nano_dialog.dart';
 
 class CreateScreen extends ConsumerStatefulWidget {
   const CreateScreen({super.key});
@@ -31,23 +34,12 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     final hasDraft = await DraftService().hasDraft();
     if (!mounted) return;
     if (hasDraft) {
-      final resume = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          title: const Text('Resume Draft?'),
-          content: const Text('We found an unfinished Nonogram draft. Would you like to resume editing?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Discard'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Resume'),
-            ),
-          ],
-        ),
+      final resume = await NanoDialog.show(
+        context,
+        title: 'Resume Draft?',
+        content: 'We found an unfinished Nonogram draft. Would you like to resume editing?',
+        confirmLabel: 'Resume',
+        cancelLabel: 'Discard',
       );
 
       if (resume == true) {
@@ -69,10 +61,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to process image: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Failed to process image: $e')),
         );
       }
     }
@@ -82,6 +71,8 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
   Widget build(BuildContext context) {
     final isGuest = ref.watch(isGuestProvider);
     final state = ref.watch(createPuzzleProvider);
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
     if (isGuest) {
       return const Scaffold(
@@ -102,45 +93,51 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
       default:
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Create Puzzle'),
+            title: const Text('Create'),
           ),
           body: Center(
             child: Padding(
-              padding: const EdgeInsets.all(16.0),
+              padding: AppSpacing.screenPadding,
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.add_photo_alternate, size: 64, color: Colors.indigo),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Design Your Nonogram',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Choose a creation method to generate or paint a puzzle.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                  const SizedBox(height: 32),
-                  ElevatedButton.icon(
-                    onPressed: _pickAndProcessImage,
-                    icon: const Icon(Icons.image),
-                    label: const Text('Convert Image (15x15)'),
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: const Size(220, 48),
+                  Container(
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    decoration: BoxDecoration(
+                      color: colorScheme.primary.withOpacity(0.08),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.add_photo_alternate_outlined,
+                      size: 48,
+                      color: colorScheme.primary,
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  OutlinedButton.icon(
+                  const SizedBox(height: AppSpacing.lg),
+                  Text(
+                    'Design Your Nonogram',
+                    style: theme.textTheme.headlineMedium,
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    'Choose a creation method to generate or paint a puzzle.',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: AppSpacing.xl),
+                  NanoButton(
+                    label: 'Convert Image (15×15)',
+                    icon: Icons.image_rounded,
+                    onPressed: _pickAndProcessImage,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  NanoButton(
+                    label: 'Convert Text (10×10)',
+                    icon: Icons.title_rounded,
+                    variant: NanoButtonVariant.outlined,
                     onPressed: () {
                       // Phase 4: Text Creation Flow
                     },
-                    icon: const Icon(Icons.title),
-                    label: const Text('Convert Text (10x10)'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(220, 48),
-                    ),
                   ),
                 ],
               ),

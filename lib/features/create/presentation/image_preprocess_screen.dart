@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../config/app_colors.dart';
+import '../../../config/app_spacing.dart';
+import '../../../shared/widgets/nano_button.dart';
 import 'providers/create_puzzle_controller.dart';
 
 class ImagePreprocessScreen extends ConsumerWidget {
@@ -9,117 +12,122 @@ class ImagePreprocessScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(createPuzzleProvider);
     final notifier = ref.read(createPuzzleProvider.notifier);
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
+    final Color gridFilled = isDark ? AppColors.gridFilledDark : AppColors.gridFilledLight;
+    final Color gridEmpty = isDark ? AppColors.gridEmptyDark : AppColors.gridEmptyLight;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // Header
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.sm),
           child: Row(
             children: [
               IconButton(
-                icon: const Icon(Icons.arrow_back),
+                icon: const Icon(Icons.arrow_back_rounded),
                 onPressed: () => notifier.changeStep(CreateStep.selectMethod),
               ),
-              const Text(
-                'Adjust Threshold',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
+              const SizedBox(width: AppSpacing.sm),
+              Text('Adjust Threshold', style: theme.textTheme.titleLarge),
             ],
           ),
         ),
 
         // Help text
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+        Padding(
+          padding: AppSpacing.screenHorizontal,
           child: Text(
             'Drag the slider to adjust the contrast. Dark areas will become filled cells in the puzzle grid.',
-            style: TextStyle(color: Colors.grey, fontSize: 14),
+            style: theme.textTheme.bodyMedium,
             textAlign: TextAlign.center,
           ),
         ),
 
-        const SizedBox(height: 16),
+        const SizedBox(height: AppSpacing.md),
 
-        // 15x15 Preview Grid inside a beautiful Card
+        // 15x15 Preview Grid
         Expanded(
           child: Center(
             child: AspectRatio(
               aspectRatio: 1.0,
-              child: Card(
-                margin: const EdgeInsets.all(24.0),
-                child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: GridView.builder(
-                    physics: const NeverScrollableScrollPhysics(),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 15,
-                      crossAxisSpacing: 2.0,
-                      mainAxisSpacing: 2.0,
-                    ),
-                    itemCount: 225,
-                    itemBuilder: (context, index) {
-                      final int r = index ~/ 15;
-                      final int c = index % 15;
-                      final bool isFilled = state.grid[r][c];
-
-                      return Container(
-                        decoration: BoxDecoration(
-                          color: isFilled
-                              ? const Color(0xFF2563EB) // Primary Filled Cell
-                              : const Color(0xFF1E1E24), // Empty Cell Background
-                          borderRadius: BorderRadius.circular(2.0),
-                        ),
-                      );
-                    },
+              child: Container(
+                margin: const EdgeInsets.all(AppSpacing.lg),
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceContainerHighest.withOpacity(0.3),
+                  borderRadius: AppSpacing.borderRadiusXl,
+                  border: Border.all(
+                    color: colorScheme.outlineVariant,
+                    width: 0.5,
                   ),
+                ),
+                padding: const EdgeInsets.all(AppSpacing.md),
+                child: GridView.builder(
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 15,
+                    crossAxisSpacing: 1.5,
+                    mainAxisSpacing: 1.5,
+                  ),
+                  itemCount: 225,
+                  itemBuilder: (context, index) {
+                    final int r = index ~/ 15;
+                    final int c = index % 15;
+                    final bool isFilled = state.grid[r][c];
+
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: isFilled ? gridFilled : gridEmpty,
+                        borderRadius: BorderRadius.circular(2.0),
+                      ),
+                    );
+                  },
                 ),
               ),
             ),
           ),
         ),
 
-        // Threshold Slider Control
+        // Threshold Slider
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
           child: Column(
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Lighter', style: TextStyle(color: Colors.grey)),
+                  Text('Lighter', style: theme.textTheme.labelSmall),
                   Text(
                     'Threshold: ${(state.threshold * 100).round()}%',
-                    style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF8B85FF)),
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: colorScheme.primary,
+                    ),
                   ),
-                  const Text('Darker', style: TextStyle(color: Colors.grey)),
+                  Text('Darker', style: theme.textTheme.labelSmall),
                 ],
               ),
               Slider(
                 value: state.threshold,
                 onChanged: (val) => notifier.updateThreshold(val),
-                activeColor: const Color(0xFF6C63FF),
-                inactiveColor: Colors.grey.withOpacity(0.3),
               ),
             ],
           ),
         ),
 
-        // Confirm Action Button
+        // Confirm button
         Padding(
-          padding: const EdgeInsets.only(left: 24.0, right: 24.0, bottom: 24.0),
-          child: ElevatedButton(
+          padding: EdgeInsets.only(
+            left: AppSpacing.lg,
+            right: AppSpacing.lg,
+            bottom: AppSpacing.lg,
+          ),
+          child: NanoButton(
+            label: 'Confirm & Edit Grid',
+            icon: Icons.check_rounded,
             onPressed: () => notifier.changeStep(CreateStep.puzzleEditor),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2563EB),
-              foregroundColor: Colors.white,
-              minimumSize: const Size(double.infinity, 50),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: const Text('Confirm & Edit Grid', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           ),
         ),
       ],

@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../../shared/utils/clue_generator.dart';
 import '../../../../shared/utils/difficulty_calculator.dart';
 import '../../../../shared/utils/image_processor.dart';
@@ -71,27 +72,29 @@ class CreatePuzzleState {
   }
 }
 
-class CreatePuzzleNotifier extends StateNotifier<CreatePuzzleState> {
-  final DraftService _draftService;
+class CreatePuzzleNotifier extends Notifier<CreatePuzzleState> {
+  late final DraftService _draftService;
 
   final List<List<List<bool>>> _undoStack = [];
   final List<List<List<bool>>> _redoStack = [];
 
-  CreatePuzzleNotifier({DraftService? draftService})
-      : _draftService = draftService ?? DraftService(),
-        super(CreatePuzzleState(
-          grid: List.generate(15, (_) => List.filled(15, false)),
-          title: '',
-          tags: [],
-          difficulty: 'easy',
-          difficultyScore: 0.0,
-          threshold: 0.5,
-          validationResult: const PuzzleValidationResult(isValid: false),
-          isAutoSaved: false,
-          type: 'image',
-          isPublishing: false,
-          step: CreateStep.selectMethod,
-        ));
+  @override
+  CreatePuzzleState build() {
+    _draftService = DraftService();
+    return CreatePuzzleState(
+      grid: List.generate(15, (_) => List.filled(15, false)),
+      title: '',
+      tags: [],
+      difficulty: 'easy',
+      difficultyScore: 0.0,
+      threshold: 0.5,
+      validationResult: const PuzzleValidationResult(isValid: false),
+      isAutoSaved: false,
+      type: 'image',
+      isPublishing: false,
+      step: CreateStep.selectMethod,
+    );
+  }
 
   void changeStep(CreateStep step) {
     state = state.copyWith(step: step);
@@ -383,6 +386,6 @@ class CreatePuzzleNotifier extends StateNotifier<CreatePuzzleState> {
   }
 }
 
-final createPuzzleProvider = StateNotifierProvider<CreatePuzzleNotifier, CreatePuzzleState>((ref) {
+final createPuzzleProvider = NotifierProvider<CreatePuzzleNotifier, CreatePuzzleState>(() {
   return CreatePuzzleNotifier();
 });
