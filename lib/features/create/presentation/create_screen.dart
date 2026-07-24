@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:go_router/go_router.dart';
+import '../../../config/app_colors.dart';
 import '../../../config/app_spacing.dart';
 import '../../../shared/widgets/guest_guard_screen.dart';
 import '../../../shared/widgets/nano_button.dart';
@@ -10,6 +12,7 @@ import 'puzzle_editor_screen.dart';
 import 'providers/create_puzzle_controller.dart';
 import '../data/services/draft_service.dart';
 import '../../../shared/utils/image_processor.dart';
+import '../../../shared/utils/pixel_font.dart';
 import '../../../shared/widgets/nano_dialog.dart';
 
 class CreateScreen extends ConsumerStatefulWidget {
@@ -63,6 +66,110 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to process image: $e')),
         );
+      }
+    }
+  }
+
+  void _showTextInputDialog() {
+    final TextEditingController textController = TextEditingController();
+    final GlobalKey<FormState> formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        final theme = Theme.of(context);
+
+        return AlertDialog(
+          title: const Text('Convert Text to Nonogram'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Enter a word of up to 12 characters. Words <= 5 characters open in the editor (10x10). Words 6-12 characters generate a multi-round puzzle.',
+                  style: theme.textTheme.bodyMedium,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                TextFormField(
+                  controller: textController,
+                  autofocus: true,
+                  maxLength: 12,
+                  decoration: const InputDecoration(
+                    labelText: 'Input Text',
+                    hintText: 'e.g. CAT, HELLOWORLD',
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Please enter some text';
+                    }
+                    final clean = value.trim();
+                    final regex = RegExp(r'^[a-zA-Z0-9 ]+$');
+                    if (!regex.hasMatch(clean)) {
+                      return 'Alphanumeric and spaces only';
+                    }
+                    return null;
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                if (formKey.currentState?.validate() == true) {
+                  final text = textController.text.trim();
+                  Navigator.pop(context);
+                  _processText(text);
+                }
+              },
+              child: const Text('Generate'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _processText(String text) async {
+    final notifier = ref.read(createPuzzleProvider.notifier);
+    final currentUser = ref.read(currentUserProvider).value;
+
+    if (text.length <= 5) {
+      final textGrid = PixelFont.renderText(text);
+      notifier.initNewTextPuzzle(text, textGrid);
+    } else {
+      if (currentUser == null) return;
+
+      // Show loader
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+
+      final success = await notifier.publishMultiRoundTextPuzzle(text, currentUser.uid);
+
+      if (mounted) {
+        Navigator.pop(context); // close loader
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              success
+                  ? 'Multi-round text puzzle published successfully!'
+                  : 'Failed to publish multi-round puzzle. Please try again.',
+            ),
+            backgroundColor: success ? AppColors.success : AppColors.error,
+          ),
+        );
+        if (success) {
+          context.go('/home');
+        }
       }
     }
   }
@@ -135,9 +242,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                     label: 'Convert Text (10×10)',
                     icon: Icons.title_rounded,
                     variant: NanoButtonVariant.outlined,
-                    onPressed: () {
-                      // Phase 4: Text Creation Flow
-                    },
+                    onPressed: _showTextInputDialog,
                   ),
                 ],
               ),

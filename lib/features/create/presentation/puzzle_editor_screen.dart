@@ -284,7 +284,6 @@ class _PuzzleEditorScreenState extends ConsumerState<PuzzleEditorScreen> {
                                     return Container(
                                       decoration: BoxDecoration(
                                         color: isFilled ? gridFilled : gridEmpty,
-                                        borderRadius: BorderRadius.circular(1.5),
                                         border: Border(
                                           right: rightBorder,
                                           bottom: bottomBorder,

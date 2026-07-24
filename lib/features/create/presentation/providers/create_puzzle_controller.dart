@@ -6,6 +6,7 @@ import '../../../../shared/utils/difficulty_calculator.dart';
 import '../../../../shared/utils/image_processor.dart';
 import '../../../../shared/utils/line_solver.dart';
 import '../../../../shared/utils/puzzle_validator.dart';
+import '../../../../shared/utils/pixel_font.dart';
 import '../../../play/domain/entities/level.dart';
 import '../../../play/domain/entities/puzzle.dart';
 import '../../data/services/draft_service.dart';
@@ -125,6 +126,32 @@ class CreatePuzzleNotifier extends Notifier<CreatePuzzleState> {
       type: 'image',
       isPublishing: false,
       step: CreateStep.imagePreprocess,
+    );
+  }
+
+  void initNewTextPuzzle(String text, List<List<bool>> textGrid) {
+    _undoStack.clear();
+    _redoStack.clear();
+
+    final diff = DifficultyCalculator.calculateDifficulty(
+      textGrid,
+      ClueGenerator.generateRowClues(textGrid),
+      ClueGenerator.generateColumnClues(textGrid),
+    );
+    final val = PuzzleValidator.validatePuzzle(textGrid);
+
+    state = CreatePuzzleState(
+      grid: textGrid,
+      title: 'Text Puzzle: $text',
+      tags: ['text', text.toLowerCase()],
+      difficulty: diff.label,
+      difficultyScore: diff.score,
+      threshold: 0.5,
+      validationResult: val,
+      isAutoSaved: false,
+      type: 'text',
+      isPublishing: false,
+      step: CreateStep.puzzleEditor,
     );
   }
 
@@ -380,6 +407,109 @@ class CreatePuzzleNotifier extends Notifier<CreatePuzzleState> {
       return true;
     } catch (e) {
       print('Error publishing puzzle: $e');
+      state = state.copyWith(isPublishing: false);
+      return false;
+    }
+  }
+
+  Future<bool> publishMultiRoundTextPuzzle(String text, String userId) async {
+    state = state.copyWith(isPublishing: true);
+
+    try {
+      final now = DateTime.now();
+      final parentLevelId = FirebaseFirestore.instance.collection('levels').doc().id;
+      final batch = FirebaseFirestore.instance.batch();
+
+      // Split into rounds of 3 characters
+      final chunks = <String>[];
+      for (int i = 0; i < text.length; i += 3) {
+        final end = (i + 3 < text.length) ? i + 3 : text.length;
+        chunks.add(text.substring(i, end));
+      }
+
+      final int totalRounds = chunks.length;
+
+      // 1. Create the parent Level metadata
+      final parentLevel = Level(
+        levelId: parentLevelId,
+        creatorId: userId,
+        title: 'Word: $text ($totalRounds Rounds)',
+        type: 'text',
+        gridSize: 10,
+        difficulty: 'medium',
+        difficultyScore: 8.0,
+        likes: 0,
+        plays: 0,
+        tags: ['text', 'multi-round', text.toLowerCase()],
+        createdAt: now,
+      );
+
+      batch.set(
+        FirebaseFirestore.instance.collection('levels').doc(parentLevelId),
+        parentLevel.toMap(),
+      );
+
+      // 2. Create the puzzle rounds
+      for (int roundIdx = 0; roundIdx < totalRounds; roundIdx++) {
+        final chunk = chunks[roundIdx];
+        final grid = PixelFont.renderText(chunk);
+        final rowClues = ClueGenerator.generateRowClues(grid);
+        final colClues = ClueGenerator.generateColumnClues(grid);
+        final diff = DifficultyCalculator.calculateDifficulty(grid, rowClues, colClues);
+
+        final roundLevelId = '${parentLevelId}_round_${roundIdx + 1}';
+
+        // Create individual round Level
+        final roundLevel = Level(
+          levelId: roundLevelId,
+          creatorId: userId,
+          title: 'Round ${roundIdx + 1}: $chunk',
+          type: 'text_round',
+          gridSize: 10,
+          difficulty: diff.label,
+          difficultyScore: diff.score,
+          likes: 0,
+          plays: 0,
+          tags: ['round', '${roundIdx + 1}'],
+          createdAt: now,
+        );
+
+        // Create individual round Puzzle
+        final roundPuzzle = Puzzle(
+          levelId: roundLevelId,
+          grid: grid,
+          rowClues: rowClues,
+          columnClues: colClues,
+        );
+
+        batch.set(
+          FirebaseFirestore.instance.collection('levels').doc(roundLevelId),
+          roundLevel.toMap(),
+        );
+        batch.set(
+          FirebaseFirestore.instance.collection('puzzles').doc(roundLevelId),
+          roundPuzzle.toMap(),
+        );
+      }
+
+      // Increment createdLevels in user doc
+      batch.update(
+        FirebaseFirestore.instance.collection('users').doc(userId),
+        {
+          'createdLevels': FieldValue.increment(1),
+          'updatedAt': Timestamp.fromDate(now),
+        },
+      );
+
+      await batch.commit();
+
+      // Clear draft locally
+      await discardDraft();
+
+      state = state.copyWith(isPublishing: false);
+      return true;
+    } catch (e) {
+      print('Error publishing multi-round text puzzle: $e');
       state = state.copyWith(isPublishing: false);
       return false;
     }
