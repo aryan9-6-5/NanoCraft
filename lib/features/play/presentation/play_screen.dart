@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,8 +24,91 @@ class PlayScreen extends ConsumerStatefulWidget {
 class _PlayScreenState extends ConsumerState<PlayScreen> {
   int? _lastToggledRow;
   int? _lastToggledCol;
-  bool? _isDrawingActive;
   bool _isSuccessDialogShown = false;
+  bool _isGameOverDialogShown = false;
+
+  Timer? _gameTimer;
+  int _elapsedSeconds = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimer();
+  }
+
+  @override
+  void dispose() {
+    _gameTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startTimer() {
+    _gameTimer?.cancel();
+    _elapsedSeconds = 0;
+    _gameTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        final playState = ref.read(playProvider);
+        if (ref.read(playProvider.notifier).isInitialized && !playState.isSolved && !playState.isGameOver) {
+          setState(() {
+            _elapsedSeconds++;
+          });
+        }
+      }
+    });
+  }
+
+  void _interpolateAndStroke(
+    int r0,
+    int c0,
+    int r1,
+    int c1,
+    PlayNotifier notifier,
+    String tool,
+  ) {
+    int dr = (r1 - r0).abs();
+    int dc = (c1 - c0).abs();
+    int sr = r0 < r1 ? 1 : -1;
+    int sc = c0 < c1 ? 1 : -1;
+    int err = dr - dc;
+
+    int r = r0;
+    int c = c0;
+
+    while (true) {
+      notifier.updateStroke(r, c, tool);
+
+      if (r == r1 && c == c1) break;
+      int e2 = 2 * err;
+      if (e2 > -dc) {
+        err -= dc;
+        r += sr;
+      }
+      if (e2 < dr) {
+        err += dr;
+        c += sc;
+      }
+    }
+  }
+
+  void _handlePanStart(
+    Offset localPosition,
+    double gridWidth,
+    int gridSize,
+    PlayState playState,
+    PlayNotifier notifier,
+  ) {
+    final double cellSize = gridWidth / gridSize;
+    final int c = (localPosition.dx / cellSize).floor().clamp(0, gridSize - 1);
+    final int r = (localPosition.dy / cellSize).floor().clamp(0, gridSize - 1);
+
+    setState(() {
+      _lastToggledRow = r;
+      _lastToggledCol = c;
+    });
+
+    notifier.updateActiveCell(r, c);
+    notifier.beginStroke(r, c, playState.activeTool);
+  }
 
   void _handlePan(
     Offset localPosition,
@@ -37,34 +121,33 @@ class _PlayScreenState extends ConsumerState<PlayScreen> {
     final int c = (localPosition.dx / cellSize).floor().clamp(0, gridSize - 1);
     final int r = (localPosition.dy / cellSize).floor().clamp(0, gridSize - 1);
 
-    // Update active highlight coordinates
     notifier.updateActiveCell(r, c);
 
-    if (r == _lastToggledRow && c == _lastToggledCol) return;
-
-    setState(() {
-      _lastToggledRow = r;
-      _lastToggledCol = c;
-    });
-
-    if (_isDrawingActive == null) {
-      if (playState.activeTool == 'fill') {
-        _isDrawingActive = !playState.playerGrid[r][c];
-      } else {
-        _isDrawingActive = !playState.playerCrosses[r][c];
-      }
+    if (_lastToggledRow == null || _lastToggledCol == null) {
+      _handlePanStart(localPosition, gridWidth, gridSize, playState, notifier);
+    } else if (r != _lastToggledRow || c != _lastToggledCol) {
+      _interpolateAndStroke(
+        _lastToggledRow!,
+        _lastToggledCol!,
+        r,
+        c,
+        notifier,
+        playState.activeTool,
+      );
+      setState(() {
+        _lastToggledRow = r;
+        _lastToggledCol = c;
+      });
     }
-
-    notifier.fillCellDrag(r, c, _isDrawingActive!, playState.activeTool);
   }
 
   void _handlePanEnd(PlayNotifier notifier) {
     setState(() {
       _lastToggledRow = null;
       _lastToggledCol = null;
-      _isDrawingActive = null;
     });
     notifier.updateActiveCell(null, null);
+    notifier.endStroke();
   }
 
   bool _isRowCompleted(List<bool> row, List<int> clues) {
@@ -84,6 +167,65 @@ class _PlayScreenState extends ConsumerState<PlayScreen> {
       if (generated[i] != clues[i]) return false;
     }
     return true;
+  }
+
+  void _showGameOverDialog(BuildContext context, String title, PlayNotifier notifier) async {
+    if (_isGameOverDialogShown) return;
+    _isGameOverDialogShown = true;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.sentiment_very_dissatisfied_rounded, color: AppColors.error, size: 36),
+            const SizedBox(width: AppSpacing.sm),
+            const Text('Game Over', style: TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(3, (index) => const Icon(Icons.star_rounded, color: Colors.grey, size: 40)),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'You ran out of lives on "$title". Try again to solve it!',
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                _isGameOverDialogShown = false;
+                _isSuccessDialogShown = false;
+              });
+              notifier.reset();
+              _startTimer();
+            },
+            child: const Text('Retry'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                _isGameOverDialogShown = false;
+                _isSuccessDialogShown = false;
+              });
+              context.go('/home');
+            },
+            child: const Text('Back to Home'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showSuccessDialog(BuildContext context, String title, PlayState playState, PlayNotifier notifier) async {
@@ -125,28 +267,52 @@ class _PlayScreenState extends ConsumerState<PlayScreen> {
 
     if (!mounted) return;
 
+    final int stars = playState.lives;
+
     await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: Row(
+        title: Column(
           children: [
-            const Icon(Icons.stars_rounded, color: AppColors.success, size: 28),
-            const SizedBox(width: AppSpacing.sm),
-            const Text('Puzzle Solved!'),
+            const Icon(Icons.stars_rounded, color: AppColors.success, size: 48),
+            const SizedBox(height: AppSpacing.xs),
+            const Text('Puzzle Solved!', style: TextStyle(fontWeight: FontWeight.bold)),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Congratulations! You solved "$title" successfully.', style: Theme.of(context).textTheme.bodyLarge),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(3, (index) {
+                final isStarWon = index < stars;
+                return Icon(
+                  Icons.star_rounded,
+                  color: isStarWon ? Colors.amber : Colors.grey.shade300,
+                  size: 44,
+                );
+              }),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'Congratulations! You solved "$title" successfully.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyLarge,
+            ),
             const SizedBox(height: AppSpacing.md),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text('Time Taken:'),
                 Text(timeStr, style: const TextStyle(fontWeight: FontWeight.bold)),
+              ],
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Lives Remaining:'),
+                Text('$stars/3', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
               ],
             ),
           ],
@@ -220,12 +386,23 @@ class _PlayScreenState extends ConsumerState<PlayScreen> {
               });
             }
 
+            // Listen for Game Over state to trigger the failure dialog
+            if (playState.isGameOver && !_isGameOverDialogShown) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _showGameOverDialog(context, level.title, notifier);
+              });
+            }
+
             final int gridSize = puzzle.grid.length;
             final Color gridFilled = isDark ? AppColors.gridFilledDark : AppColors.gridFilledLight;
             final Color gridEmpty = isDark ? AppColors.gridEmptyDark : AppColors.gridEmptyLight;
             final Color gridLine = isDark ? AppColors.gridLineDark : AppColors.gridLineLight;
             final Color gridLineThick = isDark ? AppColors.gridLineThickDark : AppColors.gridLineThickLight;
             final Color clueCompleted = isDark ? AppColors.clueCompletedDark : AppColors.clueCompletedLight;
+
+            final int minutes = _elapsedSeconds ~/ 60;
+            final int seconds = _elapsedSeconds % 60;
+            final String timerStr = '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
 
             return Scaffold(
               appBar: AppBar(
@@ -245,6 +422,7 @@ class _PlayScreenState extends ConsumerState<PlayScreen> {
                         );
                         if (confirm == true) {
                           notifier.reset();
+                          _startTimer();
                         }
                       }
                     },
@@ -265,6 +443,67 @@ class _PlayScreenState extends ConsumerState<PlayScreen> {
                     ),
                     child: Column(
                       children: [
+                        // HUD Dashboard Banner
+                        Container(
+                          margin: const EdgeInsets.only(bottom: AppSpacing.md),
+                          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+                          decoration: BoxDecoration(
+                            color: colorScheme.surfaceContainerLow,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: colorScheme.outlineVariant.withOpacity(0.5),
+                              width: 0.5,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              // Remaining Lives
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.favorite_rounded, color: Colors.red, size: 20),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '${playState.lives}/3',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                  ),
+                                ],
+                              ),
+
+                              // Stars Indicator
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: List.generate(3, (index) {
+                                  final isStarWon = index < playState.lives;
+                                  return Icon(
+                                    Icons.star_rounded,
+                                    color: isStarWon ? Colors.amber : colorScheme.onSurface.withOpacity(0.2),
+                                    size: 24,
+                                  );
+                                }),
+                              ),
+
+                              // Live Game Timer
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.timer_rounded, size: 20),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    timerStr,
+                                    style: const TextStyle(
+                                      fontFamily: 'monospace',
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+
                         LayoutBuilder(
                           builder: (context, constraints) {
                             final double totalWidth = constraints.maxWidth;
@@ -395,14 +634,17 @@ class _PlayScreenState extends ConsumerState<PlayScreen> {
 
                                             // Determine cursor highlight overlay
                                             final bool isCrossHighlighted = playState.activeRow == r || playState.activeCol == c;
+                                            final bool isErrorCell = playState.errorCellRow == r && playState.errorCellCol == c;
 
                                             return Container(
                                               decoration: BoxDecoration(
-                                                color: isFilled
-                                                    ? gridFilled
-                                                    : (isCrossHighlighted
-                                                        ? colorScheme.primary.withOpacity(0.04)
-                                                        : gridEmpty),
+                                                color: isErrorCell
+                                                    ? colorScheme.error.withOpacity(0.8)
+                                                    : (isFilled
+                                                        ? gridFilled
+                                                        : (isCrossHighlighted
+                                                            ? colorScheme.primary.withOpacity(0.04)
+                                                            : gridEmpty)),
                                                 border: Border(
                                                   right: rightBorder,
                                                   bottom: bottomBorder,
@@ -416,7 +658,15 @@ class _PlayScreenState extends ConsumerState<PlayScreen> {
                                                         color: isDark ? AppColors.gridCrossDark : AppColors.gridCrossLight,
                                                       ),
                                                     )
-                                                  : null,
+                                                  : (isErrorCell
+                                                      ? Center(
+                                                          child: Icon(
+                                                            Icons.error_outline_rounded,
+                                                            size: cellSize * 0.7,
+                                                            color: Colors.white,
+                                                          ),
+                                                        )
+                                                      : null),
                                             );
                                           },
                                         ),
@@ -460,7 +710,7 @@ class _PlayScreenState extends ConsumerState<PlayScreen> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          // Tool Toggles: Fill Pen vs Cross
+                          // Tool Toggles: Fill Pen vs Cross vs Eraser
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -474,6 +724,12 @@ class _PlayScreenState extends ConsumerState<PlayScreen> {
                                 icon: Icons.close_rounded,
                                 isSelected: playState.activeTool == 'cross',
                                 onTap: () => notifier.setTool('cross'),
+                              ),
+                              const SizedBox(width: AppSpacing.xs),
+                              _ToolToggle(
+                                icon: Icons.delete_outline_rounded,
+                                isSelected: playState.activeTool == 'eraser',
+                                onTap: () => notifier.setTool('eraser'),
                               ),
                             ],
                           ),

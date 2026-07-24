@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/entities/puzzle.dart';
@@ -6,11 +7,15 @@ class PlayState {
   final List<List<bool>> playerGrid;
   final List<List<bool>> playerCrosses;
   final bool isSolved;
-  final String activeTool; // 'fill' or 'cross'
+  final String activeTool; // 'fill', 'cross', 'eraser'
   final int? activeRow;
   final int? activeCol;
   final DateTime startedAt;
   final DateTime? completedAt;
+  final int lives;
+  final bool isGameOver;
+  final int? errorCellRow;
+  final int? errorCellCol;
 
   PlayState({
     required this.playerGrid,
@@ -21,6 +26,10 @@ class PlayState {
     this.activeCol,
     required this.startedAt,
     this.completedAt,
+    this.lives = 3,
+    this.isGameOver = false,
+    this.errorCellRow,
+    this.errorCellCol,
   });
 
   PlayState copyWith({
@@ -32,16 +41,25 @@ class PlayState {
     int? activeCol,
     DateTime? startedAt,
     DateTime? completedAt,
+    int? lives,
+    bool? isGameOver,
+    int? errorCellRow,
+    int? errorCellCol,
+    bool clearErrorCell = false,
   }) {
     return PlayState(
       playerGrid: playerGrid ?? this.playerGrid,
       playerCrosses: playerCrosses ?? this.playerCrosses,
       isSolved: isSolved ?? this.isSolved,
       activeTool: activeTool ?? this.activeTool,
-      activeRow: activeRow, // Nullable to clear highlights
+      activeRow: activeRow,
       activeCol: activeCol,
       startedAt: startedAt ?? this.startedAt,
       completedAt: completedAt ?? this.completedAt,
+      lives: lives ?? this.lives,
+      isGameOver: isGameOver ?? this.isGameOver,
+      errorCellRow: clearErrorCell ? null : (errorCellRow ?? this.errorCellRow),
+      errorCellCol: clearErrorCell ? null : (errorCellCol ?? this.errorCellCol),
     );
   }
 }
@@ -54,6 +72,10 @@ class PlayNotifier extends Notifier<PlayState> {
   final List<List<List<bool>>> _undoCrossStack = [];
   final List<List<List<bool>>> _redoGridStack = [];
   final List<List<List<bool>>> _redoCrossStack = [];
+
+  // Drag stroke tracking
+  final Set<String> _visitedCells = {};
+  bool _strokeActionValue = true; // true = add/fill, false = remove/clear
 
   @override
   PlayState build() {
@@ -78,6 +100,8 @@ class PlayNotifier extends Notifier<PlayState> {
       playerGrid: List.generate(p.grid.length, (_) => List.filled(p.grid.length, false)),
       playerCrosses: List.generate(p.grid.length, (_) => List.filled(p.grid.length, false)),
       startedAt: DateTime.now(),
+      lives: 3,
+      isGameOver: false,
     );
   }
 
@@ -92,55 +116,103 @@ class PlayNotifier extends Notifier<PlayState> {
     state = state.copyWith(activeRow: r, activeCol: c);
   }
 
-  void toggleCell(int r, int c) {
-    if (state.isSolved) return;
+  // ──────────────── stroke Gameplay Actions ────────────────
 
+  void beginStroke(int r, int c, String tool) {
+    if (state.isSolved || state.isGameOver) return;
+
+    // Save state at the beginning of the stroke for a single undo entry
     _saveToUndo();
     _redoGridStack.clear();
     _redoCrossStack.clear();
 
-    final grid = state.playerGrid.map((row) => List<bool>.from(row)).toList();
-    final crosses = state.playerCrosses.map((row) => List<bool>.from(row)).toList();
+    _visitedCells.clear();
 
-    if (state.activeTool == 'fill') {
-      grid[r][c] = !grid[r][c];
-      if (grid[r][c]) {
-        crosses[r][c] = false; // clear cross if filled
-      }
-    } else {
-      crosses[r][c] = !crosses[r][c];
-      if (crosses[r][c]) {
-        grid[r][c] = false; // clear fill if crossed
-      }
+    // Determine target action value
+    if (tool == 'fill') {
+      _strokeActionValue = true;
+    } else if (tool == 'cross') {
+      // If currently crossed, drag removes cross. Otherwise, adds cross.
+      _strokeActionValue = !state.playerCrosses[r][c];
+    } else if (tool == 'eraser') {
+      _strokeActionValue = false; // eraser always removes marks
     }
 
-    _updateState(grid, crosses);
+    _processCellInStroke(r, c, tool);
+  }
+
+  void updateStroke(int r, int c, String tool) {
+    if (state.isSolved || state.isGameOver) return;
+    _processCellInStroke(r, c, tool);
+  }
+
+  void endStroke() {
+    _visitedCells.clear();
+  }
+
+  void _processCellInStroke(int r, int c, String tool) {
+    final String key = '${r}_$c';
+    if (_visitedCells.contains(key)) return;
+    _visitedCells.add(key);
+
+    final grid = state.playerGrid.map((row) => List<bool>.from(row)).toList();
+    final crosses = state.playerCrosses.map((row) => List<bool>.from(row)).toList();
+    int newLives = state.lives;
+
+    final targetSolutionValue = puzzle.grid[r][c];
+
+    if (tool == 'fill') {
+      // Fill tool only places fills
+      if (grid[r][c]) return; // already filled
+
+      if (targetSolutionValue) {
+        // Correct fill
+        grid[r][c] = true;
+        crosses[r][c] = false;
+      } else {
+        // Mistake! Target cell should be empty. Decrement life and trigger error flash
+        newLives--;
+        _triggerErrorFlash(r, c);
+      }
+    } else if (tool == 'cross') {
+      // Cross tool places or removes crosses. Never consumes lives.
+      if (_strokeActionValue) {
+        if (!crosses[r][c]) {
+          crosses[r][c] = true;
+          grid[r][c] = false;
+        }
+      } else {
+        crosses[r][c] = false;
+      }
+    } else if (tool == 'eraser') {
+      // Eraser removes all user marks. Never consumes lives.
+      grid[r][c] = false;
+      crosses[r][c] = false;
+    }
+
+    _updateState(grid, crosses, newLives);
+  }
+
+  void _triggerErrorFlash(int r, int c) {
+    state = state.copyWith(errorCellRow: r, errorCellCol: c);
+    Timer(const Duration(milliseconds: 600), () {
+      if (state.errorCellRow == r && state.errorCellCol == c) {
+        state = state.copyWith(clearErrorCell: true);
+      }
+    });
+  }
+
+  // Legacy fallback compatibility methods
+  void toggleCell(int r, int c) {
+    beginStroke(r, c, state.activeTool);
+    endStroke();
   }
 
   void fillCellDrag(int r, int c, bool value, String tool) {
-    if (state.isSolved) return;
-
-    final grid = state.playerGrid.map((row) => List<bool>.from(row)).toList();
-    final crosses = state.playerCrosses.map((row) => List<bool>.from(row)).toList();
-
-    if (tool == 'fill') {
-      if (grid[r][c] == value) return;
-      _saveToUndo();
-      _redoGridStack.clear();
-      _redoCrossStack.clear();
-      grid[r][c] = value;
-      if (value) crosses[r][c] = false;
-    } else {
-      if (crosses[r][c] == value) return;
-      _saveToUndo();
-      _redoGridStack.clear();
-      _redoCrossStack.clear();
-      crosses[r][c] = value;
-      if (value) grid[r][c] = false;
-    }
-
-    _updateState(grid, crosses);
+    updateStroke(r, c, tool);
   }
+
+  // ──────────────── Undo / Redo ────────────────
 
   void undo() {
     if (!canUndo) return;
@@ -160,7 +232,9 @@ class PlayNotifier extends Notifier<PlayState> {
   void redo() {
     if (!canRedo) return;
 
-    _undoStackPush();
+    _undoGridStack.add(state.playerGrid.map((row) => List<bool>.from(row)).toList());
+    _undoCrossStack.add(state.playerCrosses.map((row) => List<bool>.from(row)).toList());
+
     final nextGrid = _redoGridStack.removeLast();
     final nextCrosses = _redoCrossStack.removeLast();
 
@@ -170,13 +244,8 @@ class PlayNotifier extends Notifier<PlayState> {
     );
   }
 
-  void _undoStackPush() {
-    _undoGridStack.add(state.playerGrid.map((row) => List<bool>.from(row)).toList());
-    _undoCrossStack.add(state.playerCrosses.map((row) => List<bool>.from(row)).toList());
-  }
-
   void useHint() {
-    if (state.isSolved) return;
+    if (state.isSolved || state.isGameOver) return;
 
     final target = puzzle.grid;
     final current = state.playerGrid;
@@ -191,7 +260,7 @@ class PlayNotifier extends Notifier<PlayState> {
           grid[r][c] = target[r][c];
           crosses[r][c] = false;
 
-          _updateState(grid, crosses);
+          _updateState(grid, crosses, state.lives);
           return;
         }
       }
@@ -205,6 +274,9 @@ class PlayNotifier extends Notifier<PlayState> {
       playerGrid: List.generate(size, (_) => List.filled(size, false)),
       playerCrosses: List.generate(size, (_) => List.filled(size, false)),
       isSolved: false,
+      lives: 3,
+      isGameOver: false,
+      clearErrorCell: true,
     );
   }
 
@@ -217,13 +289,16 @@ class PlayNotifier extends Notifier<PlayState> {
     }
   }
 
-  void _updateState(List<List<bool>> grid, List<List<bool>> crosses) {
+  void _updateState(List<List<bool>> grid, List<List<bool>> crosses, int newLives) {
     final solved = _checkSolved(grid);
+    final gameOver = newLives <= 0;
     state = state.copyWith(
       playerGrid: grid,
       playerCrosses: crosses,
       isSolved: solved,
-      completedAt: solved ? DateTime.now() : null,
+      lives: newLives.clamp(0, 3),
+      isGameOver: gameOver,
+      completedAt: (solved || gameOver) ? DateTime.now() : null,
     );
   }
 
