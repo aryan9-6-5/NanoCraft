@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ──────────────── Users Profile Collection ────────────────
+    match /users/{userId} {
+      // Any authenticated user (including guest sessions) can read profiles
+      allow read: if request.auth != null;
+      // Only the owner of the account can write/update their profile document
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ──────────────── Levels Collection ────────────────
+    match /levels/{levelId} {
+      // Any authenticated user can browse and read levels
+      allow read: if request.auth != null;
+      // Any authenticated user can create/publish new levels
+      allow create: if request.auth != null && request.resource.data.creatorId == request.auth.uid;
+      // Only the creator can edit or delete their published level metadata
+      allow update, delete: if request.auth != null && resource.data.creatorId == request.auth.uid;
+    }
+
+    // ──────────────── Puzzles (Grids & Clues) Collection ────────────────
+    match /puzzles/{levelId} {
+      // Any authenticated user can read puzzle solutions to play them
+      allow read: if request.auth != null;
+      // Any authenticated user can create a puzzle grid
+      allow create: if request.auth != null;
+      // Only authenticated users can update/delete puzzles (typically coordinated with levels updates)
+      allow update, delete: if request.auth != null;
+    }
+
+    // ──────────────── Plays Collection ────────────────
+    match /plays/{playId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+  }
+}
