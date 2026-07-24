@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "618803393691",
+    "project_id": "nanocraft-c0045",
+    "storage_bucket": "nanocraft-c0045.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:618803393691:android:955d1ce70b4567f4eec23e",
+        "android_client_info": {
+          "package_name": "com.aryan.nanocraft"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "618803393691-ma3et547fh0e95qr9o74q45fgeli78k5.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDPnb8cNeg8s7XsCMYh3SHLdObn889EDXQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "618803393691-ma3et547fh0e95qr9o74q45fgeli78k5.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
