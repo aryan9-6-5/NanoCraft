@@ -29,6 +29,57 @@
             {
               "client_id": "618803393691-ma3et547fh0e95qr9o74q45fgeli78k5.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "618803393691-df5mo3i6gcbi3mqqudqn9joogektudpt.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.nanocraft"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:618803393691:android:bd46d1189601db10eec23e",
+        "android_client_info": {
+          "package_name": "com.example.nanocraft"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "618803393691-8fn8tg86v3flg4octhf0577hhu8nq93r.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.nanocraft",
+            "certificate_hash": "e32a987da6f2d4e804d6b2603a5fdddf8b463acf"
+          }
+        },
+        {
+          "client_id": "618803393691-ma3et547fh0e95qr9o74q45fgeli78k5.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDPnb8cNeg8s7XsCMYh3SHLdObn889EDXQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "618803393691-ma3et547fh0e95qr9o74q45fgeli78k5.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "618803393691-df5mo3i6gcbi3mqqudqn9joogektudpt.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.nanocraft"
+              }
             }
           ]
         }
